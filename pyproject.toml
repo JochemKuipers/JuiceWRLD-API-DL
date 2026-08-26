@@ -1,0 +1,37 @@
+[project]
+name = "juicewrld-api-dl"
+version = "0.1.0"
+description = "Keep a local Juice WRLD API Compilation mirror up to date"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Jochem Kuipers", email = "jochem@kuipers.cc" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "apprise>=1.9,<2",
+    "httpx>=0.28,<1",
+    "typer>=0.16,<1",
+]
+
+[project.scripts]
+juicewrld-api-dl = "juicewrld_api_dl:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4,<10",
+    "pytest-asyncio>=1,<2",
+    "respx>=0.22,<1",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+asyncio_mode = "auto"
+markers = [
+    "live: opt-in tests that call the real Juice WRLD API",
+]
+testpaths = ["tests"]

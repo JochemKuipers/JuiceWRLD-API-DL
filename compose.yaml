@@ -1,0 +1,35 @@
+services:
+  juicewrld-api-dl:
+    image: ${JWI_IMAGE:-ghcr.io/jochemkuipers/juicewrld-api-dl:latest}
+    container_name: juicewrld-api-dl
+    restart: unless-stopped
+    user: "${PUID:-568}:${PGID:-568}"
+    environment:
+      JWI_API_URL: ${JWI_API_URL:-https://juicewrldapi.com/juicewrld}
+      JWI_ROOT: ${JWI_ROOT:-Compilation}
+      JWI_OUT_DIR: /data
+      JWI_CONFIG_DIR: /config
+      JWI_POLL_INTERVAL: ${JWI_POLL_INTERVAL:-3600}
+      JWI_CONCURRENCY: ${JWI_CONCURRENCY:-3}
+      JWI_RETRIES: ${JWI_RETRIES:-5}
+      JWI_RETRY_DELAY: ${JWI_RETRY_DELAY:-2}
+      JWI_TIMEOUT: ${JWI_TIMEOUT:-120}
+      JWI_CLEANUP: ${JWI_CLEANUP:-false}
+      JWI_NOTIFY_URLS: ${JWI_NOTIFY_URLS:-}
+      JWI_STARTUP_DELAY: ${JWI_STARTUP_DELAY:-0}
+    volumes:
+      - ${JWI_DATA_DIR:-./data}:/data
+      - ${JWI_CONFIG_HOST_DIR:-./config}:/config
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import httpx, os;
+          r=httpx.get(os.getenv('JWI_API_URL', 'https://juicewrldapi.com/juicewrld').rstrip('/') + '/health/', timeout=10);
+          r.raise_for_status()
+      interval: 5m
+      timeout: 15s
+      retries: 3
+      start_period: 30s
