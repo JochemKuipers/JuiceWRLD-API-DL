@@ -66,6 +66,10 @@ class Settings:
     def manifest_path(self) -> Path:
         return self.config_dir / "manifest.json"
 
+    @property
+    def log_path(self) -> Path:
+        return self.config_dir / "juicewrld-api-dl.log"
+
     @classmethod
     def from_env(cls) -> Settings:
         return cls(

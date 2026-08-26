@@ -17,7 +17,7 @@ It is designed to run continuously as a TrueNAS SCALE Custom App.
 - Tracks API size, modification time, and ETag in an atomic JSON manifest.
 - Limits concurrency and retries transient failures with exponential backoff.
 - Sends one grouped Discord webhook notification when new or replaced tracks
-  are downloaded.
+  are downloaded, with that run's log attached.
 - Never deletes local files unless cleanup is explicitly enabled.
 
 ## Quick start with Docker Compose
@@ -91,7 +91,7 @@ Stopping or restarting the app is safe: completed files stay complete and
 partial files resume on the next run.
 
 The public image supports both `linux/amd64` and `linux/arm64`. No registry
-credentials are required. Use the immutable `:0.1.1` tag instead of `:latest`
+credentials are required. Use the immutable `:0.1.2` tag instead of `:latest`
 if you prefer to update the app manually.
 
 ### Notifications
@@ -106,7 +106,10 @@ discord://WEBHOOK_ID/WEBHOOK_TOKEN
 The original `https://discord.com/api/webhooks/ID/TOKEN` form is also accepted.
 Treat webhook URLs as secrets. If multiple URLs are configured, the same grouped
 update is sent to each one. The list is capped at 20 track names per message,
-followed by a count of the remaining files.
+followed by a count of the remaining files. Each message carries the log of
+that run (`<config dir>/juicewrld-api-dl.log`) as an attachment. Every run
+starts a fresh log; the previous run's log is kept as
+`juicewrld-api-dl.log.1` (both size-capped at 1 MiB).
 
 ## CLI usage
 

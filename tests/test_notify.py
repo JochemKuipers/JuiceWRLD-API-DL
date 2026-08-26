@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import pytest
 import respx
@@ -59,6 +61,42 @@ async def test_discord_notification_posts_content() -> None:
 
     assert await _send(("discord://123/token",), "Title", "Body") is True
     assert route.calls[0].request.content == b'{"content":"**Title**\\nBody"}'
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_discord_notification_attaches_log_file(tmp_path: Path) -> None:
+    route = respx.post("https://discord.com/api/webhooks/123/token").mock(
+        return_value=httpx.Response(204)
+    )
+    log_file = tmp_path / "juicewrld-api-dl.log"
+    log_file.write_text("2026-08-26 12:00:00 INFO Sync complete", encoding="utf-8")
+
+    assert await _send(("discord://123/token",), "Title", "Body", log_file) is True
+
+    request = route.calls[0].request
+    assert request.headers["content-type"].startswith("multipart/form-data")
+    body = request.content
+    assert b'name="content"' in body
+    assert b'filename="juicewrld-api-dl.log"' in body
+    assert b"2026-08-26 12:00:00 INFO Sync complete" in body
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_missing_or_empty_log_file_sends_plain_message(tmp_path: Path) -> None:
+    route = respx.post("https://discord.com/api/webhooks/123/token").mock(
+        return_value=httpx.Response(204)
+    )
+    plain_body = b'{"content":"**Title**\\nBody"}'
+
+    assert await _send(("discord://123/token",), "Title", "Body", tmp_path / "no.log") is True
+    assert route.calls[0].request.content == plain_body
+
+    empty = tmp_path / "empty.log"
+    empty.write_text("", encoding="utf-8")
+    assert await _send(("discord://123/token",), "Title", "Body", empty) is True
+    assert route.calls[1].request.content == plain_body
 
 
 @pytest.mark.asyncio

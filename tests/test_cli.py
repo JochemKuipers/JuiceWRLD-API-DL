@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 import pytest
 
-from juicewrld_api_dl.cli import _parser
+from juicewrld_api_dl.cli import (
+    _configure_logging,
+    _parser,
+    _rotate_run_log,
+)
+from juicewrld_api_dl.config import Settings
 
 
 @pytest.mark.parametrize("command", ["sync", "watch", "status", "list", "manifest"])
@@ -41,3 +47,17 @@ def test_no_command_prints_helpful_usage(capsys: pytest.CaptureFixture[str]) -> 
     with pytest.raises(SystemExit):
         _parser().parse_args([])
     assert "{sync,watch,status,list,manifest}" in capsys.readouterr().err
+
+
+def test_each_run_starts_a_fresh_log(settings: Settings) -> None:
+    _configure_logging(settings)
+    run_log = logging.getLogger("juicewrld_api_dl.cli")
+    run_log.info("run one")
+    _rotate_run_log()
+    run_log.info("run two")
+
+    current = settings.log_path.read_text(encoding="utf-8")
+    previous = settings.config_dir / "juicewrld-api-dl.log.1"
+    assert "run two" in current
+    assert "run one" not in current
+    assert "run one" in previous.read_text(encoding="utf-8")

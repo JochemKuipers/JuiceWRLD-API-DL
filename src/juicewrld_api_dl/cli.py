@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import sys
 from dataclasses import replace
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import httpx
@@ -14,6 +16,43 @@ from .config import Settings
 from .manifest import load_manifest
 from .notify import notify_sync_complete, notify_sync_failed
 from .sync import SyncEngine
+
+
+log = logging.getLogger(__name__)
+
+
+def _configure_logging(settings: Settings) -> None:
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    try:
+        settings.config_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            settings.log_path,
+            maxBytes=1024 * 1024,
+            backupCount=1,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+        )
+        handlers.append(file_handler)
+    except OSError:
+        pass  # A read-only config dir must not stop the sync; console only.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=handlers,
+        force=True,
+    )
+
+
+def _rotate_run_log() -> None:
+    """Start a fresh log for this run; the previous run's log becomes .log.1."""
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, RotatingFileHandler):
+            try:
+                handler.doRollover()
+            except OSError:
+                pass  # A stale log file must never stop a run.
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -76,6 +115,7 @@ def main() -> None:
                 concurrency=args.concurrency,
                 cleanup=args.cleanup,
             )
+            _configure_logging(settings)
             if asyncio.run(_run_sync(settings)):
                 raise SystemExit(1)
         elif args.command == "watch":
@@ -86,6 +126,7 @@ def main() -> None:
                 concurrency=args.concurrency,
                 cleanup=args.cleanup,
             )
+            _configure_logging(settings)
             try:
                 asyncio.run(_watch(settings))
             except KeyboardInterrupt:
@@ -105,33 +146,38 @@ def main() -> None:
 
 
 async def _run_sync(settings: Settings) -> bool:
+    _rotate_run_log()
     try:
         async with ApiClient(settings.api_url, timeout=settings.timeout) as api:
-            result = await SyncEngine(settings, api, progress=print).run()
+            result = await SyncEngine(settings, api, progress=log.info).run()
     except (httpx.HTTPError, OSError, ValueError) as exc:
         message = f"{type(exc).__name__}: {exc}"
-        print(f"Sync failed: {message}", file=sys.stderr)
-        await notify_sync_failed(settings.notification_urls, message)
+        log.error(f"Sync failed: {message}")
+        await notify_sync_failed(
+            settings.notification_urls, message, settings.log_path
+        )
         return True
 
-    print(
+    log.info(
         f"Sync complete: {len(result.downloaded)} downloaded, "
         f"{result.unchanged} unchanged, {len(result.removed)} removed, "
         f"{len(result.failed)} failed."
     )
-    if not await notify_sync_complete(settings.notification_urls, result):
-        print("Warning: Discord notification could not be delivered.", file=sys.stderr)
+    if not await notify_sync_complete(
+        settings.notification_urls, result, settings.log_path
+    ):
+        log.error("Discord notification could not be delivered.")
     return bool(result.failed)
 
 
 async def _watch(settings: Settings) -> None:
     if settings.startup_delay:
-        print(f"Waiting {settings.startup_delay}s before the first sync...")
+        log.info(f"Waiting {settings.startup_delay}s before the first sync...")
         await asyncio.sleep(settings.startup_delay)
-    print(f"Watching every {settings.poll_interval}s. Press Ctrl+C to stop.")
+    log.info(f"Watching every {settings.poll_interval}s. Press Ctrl+C to stop.")
     while True:
         await _run_sync(settings)
-        print(f"Next check in {settings.poll_interval}s.")
+        log.info(f"Next check in {settings.poll_interval}s.")
         await asyncio.sleep(settings.poll_interval)
 
 

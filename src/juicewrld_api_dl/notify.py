@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
@@ -7,7 +8,9 @@ import httpx
 from .models import DownloadResult, SyncResult
 
 
-async def notify_sync_complete(urls: tuple[str, ...], result: SyncResult) -> bool:
+async def notify_sync_complete(
+    urls: tuple[str, ...], result: SyncResult, log_file: Path | None = None
+) -> bool:
     notable = [
         item for item in result.downloaded if item.status in {"new", "changed"}
     ]
@@ -20,29 +23,46 @@ async def notify_sync_complete(urls: tuple[str, ...], result: SyncResult) -> boo
         f"Downloaded {len(notable)} track(s): {new_count} new and "
         f"{changed_count} updated.\n\n{_format_downloads(notable)}"
     )
-    return await _send(urls, "Juice WRLD compilation updated", body)
+    return await _send(urls, "Juice WRLD compilation updated", body, log_file)
 
 
-async def notify_sync_failed(urls: tuple[str, ...], message: str) -> bool:
-    return not urls or await _send(urls, "Juice WRLD sync failed", message)
+async def notify_sync_failed(
+    urls: tuple[str, ...], message: str, log_file: Path | None = None
+) -> bool:
+    return not urls or await _send(urls, "Juice WRLD sync failed", message, log_file)
 
 
-async def _send(urls: tuple[str, ...], title: str, body: str) -> bool:
+async def _send(
+    urls: tuple[str, ...], title: str, body: str, log_file: Path | None = None
+) -> bool:
     content = f"**{title}**\n{body}"
     if len(content) > 2000:
         content = f"{content[:1999]}…"
 
+    kwargs: dict[str, object]
+    if log_file is not None and (data := _read_log(log_file)):
+        kwargs = {
+            "data": {"content": content},
+            "files": {"files[0]": (log_file.name, data, "text/plain")},
+        }
+    else:
+        kwargs = {"json": {"content": content}}
+
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             for url in urls:
-                response = await client.post(
-                    _discord_webhook_url(url),
-                    json={"content": content},
-                )
+                response = await client.post(_discord_webhook_url(url), **kwargs)
                 response.raise_for_status()
     except (httpx.HTTPError, ValueError):
         return False
     return True
+
+
+def _read_log(path: Path) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError:
+        return b""
 
 
 def _discord_webhook_url(url: str) -> str:

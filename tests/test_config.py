@@ -32,3 +32,8 @@ def test_settings_rejects_invalid_boolean(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("JWI_CLEANUP", "sometimes")
     with pytest.raises(ValueError, match="JWI_CLEANUP must be true or false"):
         Settings.from_env()
+
+
+def test_log_path_lives_beside_the_manifest() -> None:
+    settings = Settings.from_env()
+    assert settings.log_path == settings.config_dir / "juicewrld-api-dl.log"

@@ -1,6 +1,6 @@
 [project]
 name = "juicewrld-api-dl"
-version = "0.1.1"
+version = "0.1.2"
 description = "Keep a local Juice WRLD API Compilation mirror up to date"
 readme = "README.md"
 license = "MIT"
