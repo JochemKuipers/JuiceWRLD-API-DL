@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any
 
 import httpx
 
@@ -14,14 +13,12 @@ class ApiClient:
         base_url: str,
         *,
         timeout: float = 120.0,
-        client: httpx.AsyncClient | None = None,
     ) -> None:
-        self._owns_client = client is None
-        self.client = client or httpx.AsyncClient(
+        self.client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             timeout=httpx.Timeout(timeout),
             follow_redirects=True,
-            headers={"User-Agent": "juicewrld-api-dl/0.1.0"},
+            headers={"User-Agent": "juicewrld-api-dl"},
         )
 
     async def __aenter__(self) -> ApiClient:
@@ -31,16 +28,7 @@ class ApiClient:
         await self.close()
 
     async def close(self) -> None:
-        if self._owns_client:
-            await self.client.aclose()
-
-    async def health(self) -> bool:
-        try:
-            response = await self.client.get("/health/")
-            response.raise_for_status()
-            return response.json().get("status") == "ok"
-        except (httpx.HTTPError, ValueError):
-            return False
+        await self.client.aclose()
 
     async def list_files(
         self,
@@ -73,7 +61,7 @@ class ApiClient:
                 remote = RemoteFile.from_api(raw_item)
                 files[remote.path] = remote
 
-            page_count = _positive_int(payload.get("page_count"), default=page)
+            page_count = int(payload.get("page_count") or page)
             has_more = bool(payload.get("has_more"))
             if not has_more or page >= page_count:
                 break
@@ -99,11 +87,3 @@ class ApiClient:
             params={"path": remote_path},
             headers=headers,
         )
-
-
-def _positive_int(value: Any, *, default: int) -> int:
-    try:
-        result = int(value)
-    except (TypeError, ValueError):
-        return default
-    return result if result > 0 else default

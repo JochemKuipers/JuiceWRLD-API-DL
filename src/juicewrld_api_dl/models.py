@@ -7,23 +7,15 @@ from typing import Any
 @dataclass(frozen=True, slots=True)
 class RemoteFile:
     path: str
-    name: str
     size: int
     modified: str
-    extension: str = ""
-    mime_type: str = ""
-    duration: str = ""
 
     @classmethod
     def from_api(cls, item: dict[str, Any]) -> RemoteFile:
         return cls(
             path=str(item["path"]),
-            name=str(item.get("name") or item["path"].rsplit("/", 1)[-1]),
             size=int(item.get("size") or 0),
             modified=str(item.get("modified") or ""),
-            extension=str(item.get("extension") or ""),
-            mime_type=str(item.get("mime_type") or ""),
-            duration=str(item.get("duration") or ""),
         )
 
 
@@ -80,7 +72,3 @@ class SyncResult:
     failed: list[DownloadResult]
     removed: list[str]
     unchanged: int
-
-    @property
-    def new_downloads(self) -> list[DownloadResult]:
-        return [item for item in self.downloaded if item.status == "new"]

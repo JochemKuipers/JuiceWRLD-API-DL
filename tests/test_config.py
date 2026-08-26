@@ -13,7 +13,7 @@ def test_settings_reads_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("JWI_POLL_INTERVAL", "900")
     monkeypatch.setenv("JWI_CONCURRENCY", "4")
     monkeypatch.setenv("JWI_CLEANUP", "yes")
-    monkeypatch.setenv("JWI_NOTIFY_URLS", "json://one, json://two")
+    monkeypatch.setenv("JWI_NOTIFY_URLS", "discord://one/token, discord://two/token")
 
     settings = Settings.from_env()
 
@@ -22,7 +22,10 @@ def test_settings_reads_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.poll_interval == 900
     assert settings.concurrency == 4
     assert settings.cleanup is True
-    assert settings.notification_urls == ("json://one", "json://two")
+    assert settings.notification_urls == (
+        "discord://one/token",
+        "discord://two/token",
+    )
 
 
 def test_settings_rejects_invalid_boolean(monkeypatch: pytest.MonkeyPatch) -> None:

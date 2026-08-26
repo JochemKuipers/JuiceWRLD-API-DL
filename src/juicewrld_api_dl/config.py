@@ -46,14 +46,6 @@ def _env_bool(name: str, default: bool) -> bool:
     raise ValueError(f"{name} must be true or false, got {raw!r}")
 
 
-def _notification_urls() -> tuple[str, ...]:
-    return tuple(
-        value.strip()
-        for value in os.getenv("JWI_NOTIFY_URLS", "").split(",")
-        if value.strip()
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class Settings:
     api_url: str
@@ -88,6 +80,10 @@ class Settings:
             page_size=_env_int("JWI_PAGE_SIZE", 100, 1),
             timeout=_env_float("JWI_TIMEOUT", 120.0, 1),
             cleanup=_env_bool("JWI_CLEANUP", False),
-            notification_urls=_notification_urls(),
+            notification_urls=tuple(
+                value.strip()
+                for value in os.getenv("JWI_NOTIFY_URLS", "").split(",")
+                if value.strip()
+            ),
             startup_delay=_env_int("JWI_STARTUP_DELAY", 0, 0),
         )

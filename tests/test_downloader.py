@@ -15,7 +15,6 @@ from juicewrld_api_dl.models import RemoteFile
 def remote(size: int = 10) -> RemoteFile:
     return RemoteFile(
         path="Compilation/Song.mp3",
-        name="Song.mp3",
         size=size,
         modified="2026-01-01T00:00:00",
     )

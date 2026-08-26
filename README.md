@@ -16,9 +16,8 @@ It is designed to run continuously as a TrueNAS SCALE Custom App.
 - Resumes interrupted files using HTTP `Range` and `If-Range` requests.
 - Tracks API size, modification time, and ETag in an atomic JSON manifest.
 - Limits concurrency and retries transient failures with exponential backoff.
-- Sends one grouped notification through Discord, Telegram, ntfy, Slack,
-  Pushover, email, or another [Apprise](https://github.com/caronc/apprise)
-  service when new or replaced tracks are downloaded.
+- Sends one grouped Discord webhook notification when new or replaced tracks
+  are downloaded.
 - Never deletes local files unless cleanup is explicitly enabled.
 
 ## Quick start with Docker Compose
@@ -92,30 +91,22 @@ Stopping or restarting the app is safe: completed files stay complete and
 partial files resume on the next run.
 
 The public image supports both `linux/amd64` and `linux/arm64`. No registry
-credentials are required. Use the immutable `:0.1.0` tag instead of `:latest`
+credentials are required. Use the immutable `:0.1.1` tag instead of `:latest`
 if you prefer to update the app manually.
 
 ### Notifications
 
-Set `JWI_NOTIFY_URLS` to one or more comma-separated Apprise service URLs.
-Examples:
+Set `JWI_NOTIFY_URLS` to one or more comma-separated Discord webhook URLs:
 
 ```text
 # Discord webhook
 discord://WEBHOOK_ID/WEBHOOK_TOKEN
-
-# Telegram bot
-tgram://BOT_TOKEN/CHAT_ID
-
-# ntfy topic
-ntfys://ntfy.sh/your-private-topic
 ```
 
-Apprise documents all supported URL formats in its
-[service list](https://github.com/caronc/apprise/wiki). Treat notification URLs
-as secrets. If multiple URLs are configured, the same grouped update is sent to
-each one. The list is capped at 20 track names per message, followed by a count
-of the remaining files.
+The original `https://discord.com/api/webhooks/ID/TOKEN` form is also accepted.
+Treat webhook URLs as secrets. If multiple URLs are configured, the same grouped
+update is sent to each one. The list is capped at 20 track names per message,
+followed by a count of the remaining files.
 
 ## CLI usage
 
@@ -170,7 +161,7 @@ CLI flags override environment variables, which override these defaults:
 | `JWI_PAGE_SIZE` | `100` | Browse API page size |
 | `JWI_TIMEOUT` | `120` | HTTP timeout in seconds |
 | `JWI_CLEANUP` | `false` | Delete files removed upstream |
-| `JWI_NOTIFY_URLS` | empty | Comma-separated Apprise URLs |
+| `JWI_NOTIFY_URLS` | empty | Comma-separated Discord webhook URLs |
 | `JWI_STARTUP_DELAY` | `0` | Delay before the first watcher pass |
 
 ## Synchronization behavior

@@ -1,171 +1,137 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
+import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import Annotated
 
 import httpx
-import typer
 
 from .api import ApiClient
 from .config import Settings
 from .manifest import load_manifest
-from .notify import Notifier
+from .notify import notify_sync_complete, notify_sync_failed
 from .sync import SyncEngine
 
 
-app = typer.Typer(
-    name="juicewrld-api-dl",
-    help="Mirror the Juice WRLD API Compilation folder and keep it up to date.",
-    no_args_is_help=True,
-    pretty_exceptions_show_locals=False,
-)
-
-
-OutputOption = Annotated[
-    Path | None,
-    typer.Option("--out", "-o", help="Output directory. Env: JWI_OUT_DIR."),
-]
-ConfigOption = Annotated[
-    Path | None,
-    typer.Option("--config-dir", help="Manifest directory. Env: JWI_CONFIG_DIR."),
-]
-
-
-@app.command("sync")
-def sync_command(
-    output_dir: OutputOption = None,
-    config_dir: ConfigOption = None,
-    concurrency: Annotated[
-        int | None,
-        typer.Option("--concurrency", "-c", min=1, help="Parallel downloads."),
-    ] = None,
-    cleanup: Annotated[
-        bool | None,
-        typer.Option("--cleanup/--no-cleanup", help="Delete files removed upstream."),
-    ] = None,
-) -> None:
-    """Run one synchronization pass and exit."""
-    settings = _settings(
-        output_dir=output_dir,
-        config_dir=config_dir,
-        concurrency=concurrency,
-        cleanup=cleanup,
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="juicewrld-api-dl",
+        description="Mirror the Juice WRLD API Compilation folder and keep it up to date.",
     )
-    result = asyncio.run(_run_sync(settings))
-    if result:
-        raise typer.Exit(code=1)
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    sync = commands.add_parser("sync", help="Run one synchronization pass and exit.")
+    _add_paths(sync)
+    sync.add_argument("--concurrency", "-c", type=_positive_int)
+    sync.add_argument("--cleanup", action=argparse.BooleanOptionalAction, default=None)
+
+    watch = commands.add_parser("watch", help="Continuously synchronize at a fixed interval.")
+    _add_paths(watch)
+    watch.add_argument("--interval", "-i", type=_poll_interval)
+    watch.add_argument("--concurrency", "-c", type=_positive_int)
+    watch.add_argument("--cleanup", action=argparse.BooleanOptionalAction, default=None)
+
+    status = commands.add_parser("status", help="Compare remote and local state.")
+    _add_paths(status)
+
+    listing = commands.add_parser("list", help="List remote Compilation files.")
+    listing.add_argument("--limit", "-n", type=int, default=50)
+
+    manifest = commands.add_parser("manifest", help="Inspect the local manifest.")
+    manifest.add_argument("--config-dir", type=Path)
+    manifest.add_argument("--json", action="store_true")
+    return parser
 
 
-@app.command("watch")
-def watch_command(
-    output_dir: OutputOption = None,
-    config_dir: ConfigOption = None,
-    interval: Annotated[
-        int | None,
-        typer.Option("--interval", "-i", min=60, help="Seconds between sync checks."),
-    ] = None,
-    concurrency: Annotated[
-        int | None,
-        typer.Option("--concurrency", "-c", min=1, help="Parallel downloads."),
-    ] = None,
-    cleanup: Annotated[
-        bool | None,
-        typer.Option("--cleanup/--no-cleanup", help="Delete files removed upstream."),
-    ] = None,
-) -> None:
-    """Continuously synchronize at a fixed polling interval."""
-    settings = _settings(
-        output_dir=output_dir,
-        config_dir=config_dir,
-        poll_interval=interval,
-        concurrency=concurrency,
-        cleanup=cleanup,
-    )
+def _add_paths(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--out", "-o", type=Path, help="Output directory.")
+    parser.add_argument("--config-dir", type=Path, help="Manifest directory.")
+
+
+def _positive_int(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return number
+
+
+def _poll_interval(value: str) -> int:
+    number = int(value)
+    if number < 60:
+        raise argparse.ArgumentTypeError("must be at least 60")
+    return number
+
+
+def main() -> None:
+    parser = _parser()
+    args = parser.parse_args()
     try:
-        asyncio.run(_watch(settings))
-    except KeyboardInterrupt:
-        typer.echo("Stopped.")
-
-
-@app.command("status")
-def status_command(
-    output_dir: OutputOption = None,
-    config_dir: ConfigOption = None,
-) -> None:
-    """Compare the remote collection with the local manifest without downloading."""
-    settings = _settings(output_dir=output_dir, config_dir=config_dir)
-    asyncio.run(_status(settings))
-
-
-@app.command("list")
-def list_command(
-    limit: Annotated[
-        int,
-        typer.Option("--limit", "-n", min=0, help="Maximum paths to print; 0 prints all."),
-    ] = 50,
-) -> None:
-    """List files currently exposed by the remote Compilation folder."""
-    settings = _settings()
-    asyncio.run(_list_remote(settings, limit))
-
-
-@app.command("manifest")
-def manifest_command(
-    config_dir: ConfigOption = None,
-    as_json: Annotated[
-        bool,
-        typer.Option("--json", help="Print the complete manifest as JSON."),
-    ] = False,
-) -> None:
-    """Inspect the local synchronization manifest."""
-    settings = _settings(config_dir=config_dir)
-    manifest = load_manifest(settings.manifest_path)
-    if as_json:
-        typer.echo(
-            json.dumps(
-                {path: entry.to_dict() for path, entry in sorted(manifest.items())},
-                indent=2,
-                ensure_ascii=False,
+        if args.command == "sync":
+            settings = _settings(
+                output_dir=args.out,
+                config_dir=args.config_dir,
+                concurrency=args.concurrency,
+                cleanup=args.cleanup,
             )
-        )
-    else:
-        typer.echo(f"Manifest: {settings.manifest_path}")
-        typer.echo(f"Tracked files: {len(manifest)}")
+            if asyncio.run(_run_sync(settings)):
+                raise SystemExit(1)
+        elif args.command == "watch":
+            settings = _settings(
+                output_dir=args.out,
+                config_dir=args.config_dir,
+                poll_interval=args.interval,
+                concurrency=args.concurrency,
+                cleanup=args.cleanup,
+            )
+            try:
+                asyncio.run(_watch(settings))
+            except KeyboardInterrupt:
+                print("Stopped.")
+        elif args.command == "status":
+            asyncio.run(
+                _status(_settings(output_dir=args.out, config_dir=args.config_dir))
+            )
+        elif args.command == "list":
+            if args.limit < 0:
+                parser.error("--limit must be at least 0")
+            asyncio.run(_list_remote(_settings(), args.limit))
+        else:
+            _print_manifest(_settings(config_dir=args.config_dir), args.json)
+    except ValueError as exc:
+        parser.error(str(exc))
 
 
 async def _run_sync(settings: Settings) -> bool:
-    notifier = Notifier(settings.notification_urls)
     try:
         async with ApiClient(settings.api_url, timeout=settings.timeout) as api:
-            result = await SyncEngine(settings, api, progress=typer.echo).run()
+            result = await SyncEngine(settings, api, progress=print).run()
     except (httpx.HTTPError, OSError, ValueError) as exc:
         message = f"{type(exc).__name__}: {exc}"
-        typer.echo(f"Sync failed: {message}", err=True)
-        await notifier.sync_failed(message)
+        print(f"Sync failed: {message}", file=sys.stderr)
+        await notify_sync_failed(settings.notification_urls, message)
         return True
 
-    typer.echo(
+    print(
         f"Sync complete: {len(result.downloaded)} downloaded, "
         f"{result.unchanged} unchanged, {len(result.removed)} removed, "
         f"{len(result.failed)} failed."
     )
-    notification_ok = await notifier.sync_complete(result)
-    if not notification_ok:
-        typer.echo("Warning: one or more notifications could not be delivered.", err=True)
+    if not await notify_sync_complete(settings.notification_urls, result):
+        print("Warning: Discord notification could not be delivered.", file=sys.stderr)
     return bool(result.failed)
 
 
 async def _watch(settings: Settings) -> None:
     if settings.startup_delay:
-        typer.echo(f"Waiting {settings.startup_delay}s before the first sync...")
+        print(f"Waiting {settings.startup_delay}s before the first sync...")
         await asyncio.sleep(settings.startup_delay)
-    typer.echo(f"Watching every {settings.poll_interval}s. Press Ctrl+C to stop.")
+    print(f"Watching every {settings.poll_interval}s. Press Ctrl+C to stop.")
     while True:
         await _run_sync(settings)
-        typer.echo(f"Next check in {settings.poll_interval}s.")
+        print(f"Next check in {settings.poll_interval}s.")
         await asyncio.sleep(settings.poll_interval)
 
 
@@ -176,15 +142,15 @@ async def _status(settings: Settings) -> None:
             remote_files = await engine.discover()
             plan = await engine.plan(remote_files)
     except (httpx.HTTPError, OSError, ValueError) as exc:
-        typer.echo(f"Status check failed: {type(exc).__name__}: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+        print(f"Status check failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
-    typer.echo(f"Remote files: {len(remote_files)}")
-    typer.echo(f"New: {len(plan.new)}")
-    typer.echo(f"Changed: {len(plan.changed)}")
-    typer.echo(f"Missing locally: {len(plan.missing)}")
-    typer.echo(f"Removed upstream: {len(plan.removed)}")
-    typer.echo("Local mirror is current." if plan.is_current else "Local mirror needs synchronization.")
+    print(f"Remote files: {len(remote_files)}")
+    print(f"New: {len(plan.new)}")
+    print(f"Changed: {len(plan.changed)}")
+    print(f"Missing locally: {len(plan.missing)}")
+    print(f"Removed upstream: {len(plan.removed)}")
+    print("Local mirror is current." if plan.is_current else "Local mirror needs synchronization.")
 
 
 async def _list_remote(settings: Settings, limit: int) -> None:
@@ -196,15 +162,30 @@ async def _list_remote(settings: Settings, limit: int) -> None:
                 page_size=settings.page_size,
             )
     except (httpx.HTTPError, ValueError) as exc:
-        typer.echo(f"Remote listing failed: {type(exc).__name__}: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+        print(f"Remote listing failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
     visible = files if limit == 0 else files[:limit]
     for item in visible:
-        typer.echo(f"{item.path}\t{item.size}")
+        print(f"{item.path}\t{item.size}")
     if len(visible) < len(files):
-        typer.echo(f"… {len(files) - len(visible)} more (use --limit 0 to show all)")
-    typer.echo(f"Total: {len(files)} files")
+        print(f"… {len(files) - len(visible)} more (use --limit 0 to show all)")
+    print(f"Total: {len(files)} files")
+
+
+def _print_manifest(settings: Settings, as_json: bool) -> None:
+    manifest = load_manifest(settings.manifest_path)
+    if as_json:
+        print(
+            json.dumps(
+                {path: entry.to_dict() for path, entry in sorted(manifest.items())},
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+    else:
+        print(f"Manifest: {settings.manifest_path}")
+        print(f"Tracked files: {len(manifest)}")
 
 
 def _settings(
@@ -215,10 +196,7 @@ def _settings(
     concurrency: int | None = None,
     cleanup: bool | None = None,
 ) -> Settings:
-    try:
-        settings = Settings.from_env()
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    settings = Settings.from_env()
     overrides = {
         key: value
         for key, value in {
@@ -231,7 +209,3 @@ def _settings(
         if value is not None
     }
     return replace(settings, **overrides)
-
-
-def main() -> None:
-    app()

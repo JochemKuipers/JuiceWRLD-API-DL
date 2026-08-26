@@ -17,7 +17,6 @@ from juicewrld_api_dl.sync import SyncEngine, build_sync_plan
 def item(path: str, *, size: int = 10, modified: str = "v1") -> RemoteFile:
     return RemoteFile(
         path=path,
-        name=path.rsplit("/", 1)[-1],
         size=size,
         modified=modified,
     )

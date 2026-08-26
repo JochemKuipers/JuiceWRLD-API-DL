@@ -1,19 +1,33 @@
 from __future__ import annotations
 
+import httpx
 import pytest
+import respx
 
 from juicewrld_api_dl.models import DownloadResult, RemoteFile, SyncResult
-from juicewrld_api_dl.notify import Notifier, _format_downloads
+from juicewrld_api_dl.notify import (
+    _discord_webhook_url,
+    _format_downloads,
+    _send,
+    notify_sync_complete,
+)
 
 
 def result_item(index: int, status: str = "new") -> DownloadResult:
-    remote = RemoteFile(
-        path=f"Compilation/Song {index}.mp3",
-        name=f"Song {index}.mp3",
-        size=1024,
-        modified="v1",
+    return DownloadResult(
+        remote=RemoteFile(
+            path=f"Compilation/Song {index}.mp3",
+            size=1024,
+            modified="v1",
+        ),
+        status=status,
     )
-    return DownloadResult(remote=remote, status=status)
+
+
+def test_discord_url_is_converted_without_changing_existing_config() -> None:
+    assert _discord_webhook_url("discord://123/token") == (
+        "https://discord.com/api/webhooks/123/token"
+    )
 
 
 def test_notification_file_list_is_capped() -> None:
@@ -25,15 +39,7 @@ def test_notification_file_list_is_capped() -> None:
 
 
 @pytest.mark.asyncio
-async def test_missing_file_restoration_does_not_trigger_new_content_notification(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    notifier = Notifier(("json://example.test",))
-
-    async def unexpected_send(title: str, body: str) -> bool:
-        raise AssertionError(f"Unexpected notification: {title}: {body}")
-
-    monkeypatch.setattr(notifier, "_send", unexpected_send)
+async def test_missing_file_restoration_does_not_trigger_notification() -> None:
     result = SyncResult(
         discovered=1,
         downloaded=[result_item(1, status="missing")],
@@ -41,18 +47,20 @@ async def test_missing_file_restoration_does_not_trigger_new_content_notificatio
         removed=[],
         unchanged=0,
     )
-    assert await notifier.sync_complete(result) is True
+    assert await notify_sync_complete(("not-a-valid-url",), result) is True
 
 
 @pytest.mark.asyncio
-async def test_notification_provider_exception_is_nonfatal(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    notifier = Notifier(("json://example.test",))
+@respx.mock
+async def test_discord_notification_posts_content() -> None:
+    route = respx.post("https://discord.com/api/webhooks/123/token").mock(
+        return_value=httpx.Response(204)
+    )
 
-    class BrokenApprise:
-        def add(self, urls: list[str]) -> bool:
-            raise RuntimeError(f"provider failed for {urls}")
+    assert await _send(("discord://123/token",), "Title", "Body") is True
+    assert route.calls[0].request.content == b'{"content":"**Title**\\nBody"}'
 
-    monkeypatch.setattr("juicewrld_api_dl.notify.apprise.Apprise", BrokenApprise)
-    assert await notifier._send("title", "body") is False
+
+@pytest.mark.asyncio
+async def test_invalid_notification_url_is_nonfatal() -> None:
+    assert await _send(("https://example.test/webhook",), "Title", "Body") is False

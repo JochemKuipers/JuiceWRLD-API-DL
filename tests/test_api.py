@@ -56,11 +56,3 @@ async def test_list_files_paginates_and_filters_directories() -> None:
     assert route.call_count == 2
     assert route.calls[0].request.url.params["page"] == "1"
     assert route.calls[1].request.url.params["page"] == "2"
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_health_returns_false_on_api_error() -> None:
-    respx.get("https://example.test/juicewrld/health/").mock(return_value=httpx.Response(503))
-    async with ApiClient("https://example.test/juicewrld") as api:
-        assert await api.health() is False
