@@ -1,10 +1,5 @@
 # Environment notes
 
-- Windows 11, PowerShell 7. Commands run via `run_commands`; `grep`/Unix tools unavailable, use `Select-String`.
-- GitHub CLI (`gh`) is installed (v2.98.0) and authenticated. Prefer `gh` over raw REST calls
-  for GitHub operations (e.g. `gh run watch <id> --repo JochemKuipers/JuiceWRLD-API-DL --exit-status`,
-  `gh run view`, `gh pr`).
-- `uv` is installed. Run tests with `.venv\Scripts\python.exe -m pytest -q` (or `uv run pytest`).
-- After editing `pyproject.toml` (esp. version), run `uv lock` — CI uses `uv sync --locked`.
-- Push multiple git refs sequentially in separate commands; batched pushes in one command
-  list sometimes race and report "Everything up-to-date".
+- Machine-wide facts (gh CLI, uv, PowerShell, git push behavior) live in the
+  global rules at `Documents\Cline\Rules\environment.md`.
+- Run tests with `.venv\Scripts\python.exe -m pytest -q`.
