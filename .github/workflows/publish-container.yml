@@ -2,7 +2,6 @@ name: Publish container image
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -56,7 +55,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/juicewrld-api-dl
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
